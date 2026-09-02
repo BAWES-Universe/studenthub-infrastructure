@@ -1,0 +1,7 @@
+# Default owner for every path. More-specific teams can be added as the fleet grows.
+* @BAWES
+
+# Infrastructure and repository controls always require the repository owner.
+/.github/ @BAWES
+/**/terraform/ @BAWES
+/**/*.tf @BAWES
