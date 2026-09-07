@@ -1,0 +1,22 @@
+name: Staging Readiness
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  staging-readiness:
+    name: staging-readiness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet 'PyYAML>=6,<7'
+      - name: Readiness gate
+        run: python3 authentik/validate/validate_staging_readiness.py
+      - name: Prove the gate can fail
+        run: python3 authentik/validate/test_staging_readiness.py

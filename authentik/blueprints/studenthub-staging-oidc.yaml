@@ -1,0 +1,115 @@
+# StudentHub staging — Authentik OIDC provider and application (SHU-50).
+#
+# Declarative source of truth for the identity side of "Continue with Universe".
+# Applying this file recreates the provider and application from scratch; that
+# is the recovery property this slice exists to give SHU-30.
+#
+# SECRETS ARE NOT IN THIS FILE AND MUST NEVER BE ADDED TO IT.
+# The client secret is read from the environment at apply time via !Env. The
+# repository's .gitignore blocks .env*, and CI fails on a committed secret.
+#
+# The values in `context` are the CONTRACT with the gateway. They are duplicated
+# in authentik/env/studenthub-gateway.staging.env.example, and
+# authentik/validate/validate-staging-readiness.py asserts the two agree. Change
+# one and the check fails until you change the other.
+version: 1
+metadata:
+  name: studenthub-staging-oidc
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+
+context:
+  # Public identifiers only. The client SECRET is never contextualised here.
+  studenthub_client_id: studenthub-staging
+  studenthub_app_slug: studenthub-staging
+  # The gateway compares the ID-token `iss` claim to OIDC_ISSUER by exact string
+  # equality. A trailing slash here that is absent there fails every login.
+  studenthub_issuer: https://id.staging.bawes.net/application/o/studenthub-staging/
+  # authz's exactHttpsUrl() rejects a callback whose pathname is not exactly
+  # /login/callback, so this value is not free-form.
+  studenthub_callback_url: https://studenthub.staging.bawes.net/login/callback
+
+entries:
+  # --- Scope mappings -------------------------------------------------------
+  # Only the three scopes the gateway asks for. Additional scopes would widen
+  # the token beyond what the login contract validates.
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-openid
+    identifiers:
+      managed: goauthentik.io/providers/oauth2/scope-openid
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-email
+    identifiers:
+      managed: goauthentik.io/providers/oauth2/scope-email
+  - model: authentik_providers_oauth2.scopemapping
+    id: scope-profile
+    identifiers:
+      managed: goauthentik.io/providers/oauth2/scope-profile
+
+  # --- Signing key ----------------------------------------------------------
+  # Referenced, not created. Key material is never blueprinted. The deployed
+  # instance must already hold a keypair under this name; see README recovery.
+  - model: authentik_crypto.certificatekeypair
+    id: studenthub-signing-key
+    identifiers:
+      name: authentik Self-signed Certificate
+
+  # --- Flows ----------------------------------------------------------------
+  - model: authentik_flows.flow
+    id: default-authorization-flow
+    identifiers:
+      slug: default-provider-authorization-implicit-consent
+  - model: authentik_flows.flow
+    id: default-invalidation-flow
+    identifiers:
+      slug: default-provider-invalidation-flow
+
+  # --- OAuth2 / OIDC provider ----------------------------------------------
+  - model: authentik_providers_oauth2.oauth2provider
+    id: studenthub-provider
+    identifiers:
+      name: StudentHub Staging
+    attrs:
+      client_type: confidential
+      client_id: !Context studenthub_client_id
+      # Supplied by the operator's shell at apply time. Never committed.
+      client_secret: !Env AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET
+      authorization_flow: !KeyOf default-authorization-flow
+      invalidation_flow: !KeyOf default-invalidation-flow
+      signing_key: !KeyOf studenthub-signing-key
+      property_mappings:
+        - !KeyOf scope-openid
+        - !KeyOf scope-email
+        - !KeyOf scope-profile
+      # CRITICAL. The gateway applies UNIVERSE_SUBJECT_POLICY, which is
+      # USER_EMAIL_SUBJECT_POLICY: /^[^\s@]+@[^\s@]+\.[^\s@]+$/. Authentik's
+      # default sub_mode is hashed_user_id, which does NOT match that pattern.
+      # With the wrong mode every login fails AFTER a successful token exchange,
+      # at config.subjectPolicy(claims.sub) — a generic rejection with no clue
+      # in it. This one line is the difference between a working first human
+      # test and an afternoon of debugging a silent-looking failure.
+      sub_mode: user_email
+      include_claims_in_id_token: true
+      # Exact redirect matching. A regex mode here would widen the single
+      # control the login contract's callback scenario depends on.
+      redirect_uris:
+        - matching_mode: strict
+          url: !Context studenthub_callback_url
+      access_code_validity: minutes=1
+      access_token_validity: minutes=10
+      refresh_token_validity: days=30
+
+  # --- Application ----------------------------------------------------------
+  - model: authentik_core.application
+    id: studenthub-application
+    identifiers:
+      slug: !Context studenthub_app_slug
+    attrs:
+      name: StudentHub (staging)
+      provider: !KeyOf studenthub-provider
+      # Explicit. Left unset, a future policy binding change could silently
+      # widen who reaches the authorization flow.
+      policy_engine_mode: all
+      meta_description: >-
+        Staging StudentHub. Sign in with your Universe account to see your own
+        profile, read-only.
