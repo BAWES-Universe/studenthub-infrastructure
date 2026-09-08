@@ -15,8 +15,11 @@ environment, which this slice deliberately does not touch.
 - The gateway's nine login variables are documented with exact values, secrets
   left as placeholders — `authentik/env/studenthub-gateway.staging.env.example`.
 - A readiness gate asserts the two agree with each other and with what the merged
-  gateway enforces, and ten mutation tests prove the gate catches each failure it
-  claims to catch. Both run in CI.
+  gateway enforces, and a mutation suite proves the gate catches each failure it
+  claims to catch — every rule is broken in a temporary copy and must be rejected
+  by name, with the unmutated configuration required to pass as a control. Both
+  run in CI, so the current count is whatever the suite prints rather than a
+  number in this sentence that goes stale the next time a rule is added.
 
 ## What still needs a human, and why
 
