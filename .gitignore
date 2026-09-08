@@ -3,3 +3,7 @@
 .env*
 *.pem
 *.key
+
+# Python bytecode from running the readiness checks locally.
+__pycache__/
+*.pyc
