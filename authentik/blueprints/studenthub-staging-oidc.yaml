@@ -24,10 +24,14 @@ context:
   studenthub_app_slug: studenthub-staging
   # The gateway compares the ID-token `iss` claim to OIDC_ISSUER by exact string
   # equality. A trailing slash here that is absent there fails every login.
-  studenthub_issuer: https://id.staging.bawes.net/application/o/studenthub-staging/
+  # D1 (ratified 2026-09-08): reuse the EXISTING production Authentik instance
+  # (auth.bawes.net) with a fresh restricted provider — no second identity
+  # system. Earlier drafts assumed id.staging.bawes.net (NXDOMAIN); corrected.
+  studenthub_issuer: https://auth.bawes.net/application/o/studenthub-staging/
   # authz's exactHttpsUrl() rejects a callback whose pathname is not exactly
-  # /login/callback, so this value is not free-form.
-  studenthub_callback_url: https://studenthub.staging.bawes.net/login/callback
+  # /login/callback, so this value is not free-form. D2 (ratified 2026-09-08):
+  # staging-named hostname on the StudentHub box; *.staging.bawes.net is NXDOMAIN.
+  studenthub_callback_url: https://staging.studenthub.co/login/callback
 
 entries:
   # --- Scope mappings -------------------------------------------------------
