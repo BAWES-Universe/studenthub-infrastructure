@@ -20,14 +20,17 @@ metadata:
 
 context:
   # Public identifiers only. The client SECRET is never contextualised here.
-  studenthub_client_id: studenthub-staging
-  studenthub_app_slug: studenthub-staging
+  # Plain "studenthub" (OIDC client id + app slug) — this is StudentHub itself,
+  # not a "-staging" variant. The hostname is staging.studenthub.co; on release a
+  # second DNS record is added to the same box (no reconfiguration) (Khalid 2026-09-08).
+  studenthub_client_id: studenthub
+  studenthub_app_slug: studenthub
   # The gateway compares the ID-token `iss` claim to OIDC_ISSUER by exact string
   # equality. A trailing slash here that is absent there fails every login.
   # D1 (ratified 2026-09-08): reuse the EXISTING production Authentik instance
   # (auth.bawes.net) with a fresh restricted provider — no second identity
   # system. Earlier drafts assumed id.staging.bawes.net (NXDOMAIN); corrected.
-  studenthub_issuer: https://auth.bawes.net/application/o/studenthub-staging/
+  studenthub_issuer: https://auth.bawes.net/application/o/studenthub/
   # authz's exactHttpsUrl() rejects a callback whose pathname is not exactly
   # /login/callback, so this value is not free-form. D2 (ratified 2026-09-08):
   # staging-named hostname on the StudentHub box; *.staging.bawes.net is NXDOMAIN.
@@ -64,7 +67,9 @@ entries:
   - model: authentik_providers_oauth2.oauth2provider
     id: studenthub-provider
     identifiers:
-      name: StudentHub Staging
+      # Name stays "StudentHub" (not "StudentHub Staging"): this is the provider
+      # that becomes production once staging is confirmed better (Khalid 2026-09-08).
+      name: StudentHub
     attrs:
       client_type: confidential
       client_id: !Context studenthub_client_id
@@ -107,7 +112,7 @@ entries:
     identifiers:
       slug: !Context studenthub_app_slug
     attrs:
-      name: StudentHub (staging)
+      name: StudentHub
       provider: !KeyOf studenthub-provider
       # Explicit. Left unset, a future policy binding change could silently
       # widen who reaches the authorization flow.
