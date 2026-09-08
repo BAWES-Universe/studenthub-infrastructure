@@ -44,6 +44,16 @@ EXACT_HTTPS_ENV = [
     "OIDC_TOKEN_URL",
     "OIDC_JWKS_URL",
 ]
+# Endpoints that must live on the issuer's own origin. The gateway posts the
+# client secret and the authorization code to OIDC_TOKEN_URL, and trusts signing
+# keys from OIDC_JWKS_URL. Valid HTTPS is not enough: a syntactically fine URL on
+# someone else's host is a credential handoff to that host. The callback is
+# deliberately NOT in this list -- it is the gateway's own origin, not the IdP's.
+ISSUER_ORIGIN_ENV = [
+    "OIDC_AUTHORIZATION_URL",
+    "OIDC_TOKEN_URL",
+    "OIDC_JWKS_URL",
+]
 SECRET_ENV = ["DATABASE_URL", "OIDC_CLIENT_SECRET"]
 PLACEHOLDER = "REPLACE_ME"
 
@@ -65,6 +75,7 @@ class Tagged:
     """Preserves an Authentik custom tag (!Env / !Context / !KeyOf) and its value."""
 
     def __init__(self, tag: str, value: object) -> None:
+        """Record the tag name and the value it decorated."""
         self.tag = tag
         self.value = value
 
@@ -73,10 +84,16 @@ class Tagged:
 
 
 def _loader() -> type[yaml.SafeLoader]:
+    """A SafeLoader that keeps Authentik's custom tags instead of rejecting them.
+
+    safe_load() raises on !Env / !Context / !KeyOf. Preserving them as Tagged is
+    what lets the credential rule distinguish an !Env reference from a literal.
+    """
     class BlueprintLoader(yaml.SafeLoader):
         pass
 
     def keep(loader: yaml.Loader, tag_suffix: str, node: yaml.Node) -> Tagged:
+        """Construct any custom-tagged node as a Tagged wrapper."""
         if isinstance(node, yaml.ScalarNode):
             value: object = loader.construct_scalar(node)
         elif isinstance(node, yaml.SequenceNode):
@@ -90,6 +107,11 @@ def _loader() -> type[yaml.SafeLoader]:
 
 
 def parse_env(text: str) -> dict[str, str]:
+    """Read NAME=value lines, skipping blanks and comments.
+
+    A bare `NAME=` yields an empty string, which is present-but-invalid rather
+    than absent -- the callers distinguish the two.
+    """
     values: dict[str, str] = {}
     for line in text.splitlines():
         stripped = line.strip()
@@ -122,6 +144,11 @@ def check_exact_https(failures: list[str], label: str, raw: str) -> None:
 
 
 def main() -> int:
+    """Run every rule, print all failures, and return a process exit code.
+
+    Collects rather than short-circuits: an operator should see the whole set in
+    one run, not fix one and rediscover the next.
+    """
     failures: list[str] = []
 
     blueprint = yaml.load(BLUEPRINT.read_text(), Loader=_loader())
@@ -130,6 +157,7 @@ def main() -> int:
     entries = blueprint.get("entries") or []
 
     def entry(model: str) -> dict:
+        """Return the blueprint entry for a model, recording a failure if absent."""
         for item in entries:
             if item.get("model") == model:
                 return item
@@ -145,8 +173,16 @@ def main() -> int:
                 f"env template: missing {name}; the nine login variables are "
                 "all-or-nothing and the gateway throws on a partial set"
             )
+        elif not env[name].strip():
+            # `NAME=` parses as present with an empty value. The gateway rejects
+            # that at startup; the gate should reject it here, before deployment.
+            failures.append(
+                f"env template: {name} is present but empty; supply a value or "
+                "a placeholder, never a bare assignment"
+            )
     for name in SECRET_ENV:
-        if env.get(name) and env[name] != PLACEHOLDER:
+        # Membership, not truthiness: an empty value must not skip this rule.
+        if name in env and env[name].strip() and env[name] != PLACEHOLDER:
             failures.append(
                 f"env template: {name} must stay {PLACEHOLDER}; this file is committed"
             )
@@ -157,6 +193,25 @@ def main() -> int:
             check_exact_https(failures, f"env {name}", env[name])
     for item in [part for part in env.get("LOGIN_ALLOWED_RETURN_URLS", "").split(",") if part]:
         check_exact_https(failures, "env LOGIN_ALLOWED_RETURN_URLS entry", item.strip())
+
+    # 2b. Every IdP endpoint sits on the issuer's origin. Syntactically valid
+    #     HTTPS on a foreign host would hand the client secret and the
+    #     authorization code to that host.
+    issuer_raw = env.get("OIDC_ISSUER", "")
+    if issuer_raw:
+        issuer_parts = urlsplit(issuer_raw)
+        issuer_origin = (issuer_parts.scheme, issuer_parts.netloc)
+        for name in ISSUER_ORIGIN_ENV:
+            if name not in env:
+                continue
+            parts = urlsplit(env[name])
+            if (parts.scheme, parts.netloc) != issuer_origin:
+                failures.append(
+                    f"env {name}: origin {parts.scheme}://{parts.netloc} does not match "
+                    f"the issuer origin {issuer_parts.scheme}://{issuer_parts.netloc}; "
+                    "the gateway posts the client secret and authorization code to the "
+                    "token endpoint and trusts signing keys from the JWKS endpoint"
+                )
 
     # 3. The callback path is not free-form: the gateway refuses to start otherwise.
     callback = env.get("OIDC_CALLBACK_URL", "")
@@ -241,6 +296,24 @@ def main() -> int:
                 )
 
     scan({"entries": entries, "context": context}, "blueprint")
+
+    # 6b. The blueprint never creates key material. An `entry` for a keypair
+    #     defaults to `state: present`, which CREATES the object when absent --
+    #     so a blueprint that "references" a signing key by entry silently
+    #     generates one. Only a fail-closed !Find lookup is acceptable.
+    for item in entries:
+        if item.get("model") == "authentik_crypto.certificatekeypair":
+            failures.append(
+                "blueprint: an entry for authentik_crypto.certificatekeypair would "
+                "CREATE key material when absent (state defaults to present); "
+                "reference an existing keypair with !Find instead"
+            )
+    signing_key = provider.get("signing_key")
+    if not isinstance(signing_key, Tagged) or signing_key.tag != "!Find":
+        failures.append(
+            f"provider signing_key must be a fail-closed !Find lookup, got {signing_key!r}; "
+            "anything else can bring a keypair into existence rather than requiring one"
+        )
 
     # 7. The confidential client the gateway authenticates as.
     if provider.get("client_type") != "confidential":

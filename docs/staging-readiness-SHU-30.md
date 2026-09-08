@@ -40,14 +40,32 @@ python3 authentik/validate/validate_staging_readiness.py
 If it fails, the configuration is wrong in a way that would have produced a
 confusing runtime failure. Fix that before touching the environment.
 
-## Two failure modes worth recognising on sight
+## Failure modes worth recognising on sight
 
-- **Login gets all the way through and then refuses, with no useful error.** Almost
-  certainly `sub_mode`. It must be `user_email`; Authentik's default is
-  `hashed_user_id`, which fails the gateway's subject policy *after* a successful
-  token exchange.
-- **The gateway will not start at all.** The nine login variables are all-or-nothing.
-  The thrown message names the missing ones.
+**The blueprint fails to apply.** Most likely a field-shape mismatch with your
+Authentik version, or the client-secret variable missing from the *server
+process* environment — see the README's Applying section. This is an apply-time
+check that no amount of validation here can substitute for.
+
+**The gateway will not start at all.** The nine login variables are
+all-or-nothing; the thrown message names the missing ones.
+
+**Login gets all the way through and then refuses, with no useful error.** The
+gateway returns the same generic rejection for several distinct causes, all of
+them *after* a successful token exchange. Work through them in this order rather
+than assuming the first:
+
+1. **`iss` mismatch.** Compare the ID token's `iss` claim against `OIDC_ISSUER`
+   character by character, trailing slash included. The gateway compares by exact
+   string equality, so a one-character difference fails every login.
+2. **`sub_mode`.** It must be `user_email`. Authentik's default `hashed_user_id`
+   fails the gateway's subject policy, which requires an email-shaped `sub`.
+3. **Audience.** The token's `aud` must be exactly the client id, or a single-entry
+   array containing it.
+4. **Nonce or state binding**, if the callback was replayed or crossed sessions.
+
+If `sub_mode` is already `user_email` and the issuer matches, stop guessing and
+read the gateway logs — the audit events record a typed reason per decision.
 
 ## Boundaries observed in this slice
 

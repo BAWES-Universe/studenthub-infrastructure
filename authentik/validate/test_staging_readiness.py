@@ -88,6 +88,41 @@ CASES = [
         "must stay REPLACE_ME",
     ),
     (
+        "token endpoint moved to a foreign HTTPS origin",
+        ENV_REL,
+        "OIDC_TOKEN_URL=https://id.staging.bawes.net/application/o/token/",
+        "OIDC_TOKEN_URL=https://attacker.invalid/token",
+        "does not match",
+    ),
+    (
+        "JWKS endpoint moved to a foreign HTTPS origin",
+        ENV_REL,
+        "OIDC_JWKS_URL=https://id.staging.bawes.net/application/o/studenthub-staging/jwks/",
+        "OIDC_JWKS_URL=https://attacker.invalid/jwks",
+        "does not match",
+    ),
+    (
+        "DATABASE_URL present but empty",
+        ENV_REL,
+        "DATABASE_URL=REPLACE_ME",
+        "DATABASE_URL=",
+        "present but empty",
+    ),
+    (
+        "OIDC_CLIENT_SECRET present but empty",
+        ENV_REL,
+        "OIDC_CLIENT_SECRET=REPLACE_ME",
+        "OIDC_CLIENT_SECRET=",
+        "present but empty",
+    ),
+    (
+        "signing key downgraded from a !Find lookup to a creating entry",
+        BLUEPRINT_REL,
+        '      signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]',
+        "      signing_key: !KeyOf studenthub-signing-key",
+        "signing_key must be a fail-closed !Find",
+    ),
+    (
         "client id drifts between blueprint and env",
         ENV_REL,
         "OIDC_CLIENT_ID=studenthub-staging",
@@ -98,6 +133,7 @@ CASES = [
 
 
 def run(root: Path) -> tuple[int, str]:
+    """Run the validator against a tree and return its exit code and output."""
     result = subprocess.run(
         [sys.executable, str(root / "validate" / "validate_staging_readiness.py")],
         capture_output=True,
@@ -107,6 +143,7 @@ def run(root: Path) -> tuple[int, str]:
 
 
 def main() -> int:
+    """Apply each mutation to a fresh copy and require the named rule to reject it."""
     failures: list[str] = []
 
     for name, rel, find, replace, expected in CASES:

@@ -40,14 +40,35 @@ tests establish that the gate would notice if they stopped being true.
 
 ## Applying
 
-The blueprint is applied by the deployed Authentik instance, not from here.
+The blueprint is applied by the deployed Authentik **server process**, not from
+this repository. That distinction matters for the secret, and is the step most
+easily got wrong.
+
+`!Env` is resolved by Authentik at apply time, so
+`AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET` must be present **in the environment
+of the process running the apply** — the server container. Exporting it in your
+own shell and then running `docker exec ... ak apply_blueprint` does *not* carry
+it across: the apply will fail to resolve the tag.
+
+Read the value without putting it in shell history:
 
 ```bash
-# The secret comes from the password manager, into the operator's shell only.
-export AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET='...'
-# Then make the blueprint visible to the instance's blueprint directory and let
-# it reconcile, or apply it with `ak apply_blueprint` inside the server container.
+read -rs AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET   # prompts, echoes nothing
+export AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET
 ```
+
+Then get it into the server process by whichever path your deployment uses:
+
+- **Compose:** add it to the Authentik server service's `environment:` or
+  `env_file:`, recreate the container, then apply.
+- **Kubernetes:** add it to the server Deployment's env, sourced from a
+  `secretKeyRef`, then apply.
+- **One-off exec:** pass it explicitly into the exec environment, e.g.
+  `docker exec -e AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET ... ak apply_blueprint ...`,
+  which forwards the value from your shell without embedding it in the command.
+
+Either mount the blueprint into the instance's blueprint directory and let it
+reconcile, or apply it explicitly once the variable is in place.
 
 Nothing in this repository holds that value, and nothing here reaches a live
 instance. `.env*`, `*.key` and `*.pem` are gitignored; the gate independently
@@ -61,10 +82,16 @@ identical client id, issuer path, redirect URI, scopes and subject mode. Only tw
 things must be restored out of band, because neither belongs in a repository:
 
 1. **The client secret**, from the password manager.
-2. **The signing keypair**. The blueprint *references* a keypair by name and never
-   creates one. If the instance is rebuilt from empty, either restore the original
-   keypair from the Authentik backup or generate a new one under the same name —
-   in which case previously issued ID tokens stop validating, which is correct.
+2. **The signing keypair**, which must exist *before* the blueprint is applied.
+   `signing_key` is a `!Find` lookup, so an apply against an instance with no
+   keypair of that name **fails** rather than quietly generating one. That is
+   deliberate: a blueprint that can bring key material into existence is a
+   blueprint that can silently replace your signing identity.
+
+   So the order on a rebuilt instance is: restore the keypair from the Authentik
+   backup (or create one under the same name in the UI), *then* apply. If you
+   create a new keypair rather than restoring the original, previously issued ID
+   tokens stop validating — which is correct, and worth knowing before you do it.
 
 ## What this cannot tell you
 

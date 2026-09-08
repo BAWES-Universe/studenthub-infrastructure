@@ -46,14 +46,6 @@ entries:
     identifiers:
       managed: goauthentik.io/providers/oauth2/scope-profile
 
-  # --- Signing key ----------------------------------------------------------
-  # Referenced, not created. Key material is never blueprinted. The deployed
-  # instance must already hold a keypair under this name; see README recovery.
-  - model: authentik_crypto.certificatekeypair
-    id: studenthub-signing-key
-    identifiers:
-      name: authentik Self-signed Certificate
-
   # --- Flows ----------------------------------------------------------------
   - model: authentik_flows.flow
     id: default-authorization-flow
@@ -76,7 +68,13 @@ entries:
       client_secret: !Env AUTHENTIK_STUDENTHUB_STAGING_CLIENT_SECRET
       authorization_flow: !KeyOf default-authorization-flow
       invalidation_flow: !KeyOf default-invalidation-flow
-      signing_key: !KeyOf studenthub-signing-key
+      # !Find is a fail-closed LOOKUP of an existing keypair: if no object with
+      # this name exists, the apply fails. An `entry` for the keypair would
+      # default to `state: present`, which CREATES it when absent -- silently
+      # generating key material from a blueprint, which this repository must
+      # never do. The earlier revision of this file made exactly that mistake
+      # while its comment claimed the opposite.
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
       property_mappings:
         - !KeyOf scope-openid
         - !KeyOf scope-email
