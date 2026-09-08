@@ -55,8 +55,8 @@ CASES = [
     (
         "issuer drifts between blueprint and env by a trailing slash",
         ENV_REL,
-        "OIDC_ISSUER=https://auth.bawes.net/application/o/studenthub-staging/",
-        "OIDC_ISSUER=https://auth.bawes.net/application/o/studenthub-staging",
+        "OIDC_ISSUER=https://auth.bawes.net/application/o/studenthub/",
+        "OIDC_ISSUER=https://auth.bawes.net/application/o/studenthub",
         "studenthub_issuer",
     ),
     (
@@ -76,7 +76,7 @@ CASES = [
     (
         "a required variable removed",
         ENV_REL,
-        "OIDC_JWKS_URL=https://auth.bawes.net/application/o/studenthub-staging/jwks/",
+        "OIDC_JWKS_URL=https://auth.bawes.net/application/o/studenthub/jwks/",
         "# OIDC_JWKS_URL removed",
         "missing OIDC_JWKS_URL",
     ),
@@ -97,7 +97,7 @@ CASES = [
     (
         "JWKS endpoint moved to a foreign HTTPS origin",
         ENV_REL,
-        "OIDC_JWKS_URL=https://auth.bawes.net/application/o/studenthub-staging/jwks/",
+        "OIDC_JWKS_URL=https://auth.bawes.net/application/o/studenthub/jwks/",
         "OIDC_JWKS_URL=https://attacker.invalid/jwks",
         "does not match",
     ),
@@ -125,7 +125,7 @@ CASES = [
     (
         "client id drifts between blueprint and env",
         ENV_REL,
-        "OIDC_CLIENT_ID=studenthub-staging",
+        "OIDC_CLIENT_ID=studenthub",
         "OIDC_CLIENT_ID=studenthub-production",
         "drift",
     ),
